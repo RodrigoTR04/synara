@@ -15,7 +15,7 @@ import {
   normalizeModelSlug,
   trimOrNull,
 } from "@synara/shared/model";
-import { normalizeCursorModelVariantBaseId } from "../../cursorModelVariants";
+import { cursorModelVariantBaseIdsEquivalent } from "../../cursorModelVariants";
 
 function runtimeEffortLabel(value: string): string {
   switch (value) {
@@ -63,8 +63,7 @@ export function resolveRuntimeModelDescriptor(input: {
     }
     return (
       provider === "cursor" &&
-      normalizeCursorModelVariantBaseId(normalizedCandidate) ===
-        normalizeCursorModelVariantBaseId(normalizedModel)
+      cursorModelVariantBaseIdsEquivalent(normalizedCandidate, normalizedModel)
     );
   });
 }

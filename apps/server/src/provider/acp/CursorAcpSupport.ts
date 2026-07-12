@@ -1305,17 +1305,25 @@ function resolveCursorAutoModelValue(
   );
 }
 
+function cursorModelBaseIdsEquivalent(left: string, right: string): boolean {
+  if (left === right) {
+    return true;
+  }
+  // Cursor Grok ids use dotted versions (grok-4.5); tolerate hyphenated aliases (grok-4-5).
+  return left.replaceAll(".", "-") === right.replaceAll(".", "-");
+}
+
 function cursorChoiceMatchesCliBase(choice: CursorAcpModelChoice, baseModel: string): boolean {
   if (choice.slug.includes("[")) {
     return false;
   }
   const choiceBase = normalizeCursorCliBaseModelId(choice.slug);
   const requestedBase = normalizeCursorCliBaseModelId(stripCursorParameterizedSuffix(baseModel));
-  return choiceBase === requestedBase;
+  return cursorModelBaseIdsEquivalent(choiceBase, requestedBase);
 }
 
 /**
- * When Cursor only exposes flat CLI trait variants (e.g. grok-4-5-fast-high),
+ * When Cursor only exposes flat CLI trait variants (e.g. grok-4.5-fast-high),
  * pick the slug that matches the collapsed base + requested effort/fast/thinking.
  */
 function findCursorCliVariantForTraits(

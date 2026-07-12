@@ -99,9 +99,25 @@ export function normalizeCursorModelVariantBaseId(model: string | null | undefin
   return base;
 }
 
+/** Cursor Grok ids use dotted versions (grok-4.5); tolerate hyphenated aliases. */
+export function cursorModelVariantBaseIdsEquivalent(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
+  const leftBase = normalizeCursorModelVariantBaseId(left);
+  const rightBase = normalizeCursorModelVariantBaseId(right);
+  if (!leftBase || !rightBase) {
+    return false;
+  }
+  if (leftBase === rightBase) {
+    return true;
+  }
+  return leftBase.replaceAll(".", "-") === rightBase.replaceAll(".", "-");
+}
+
 /**
  * Infers Cursor trait options encoded in flat CLI variant ids such as
- * `grok-4-5-fast-high` so the composer can keep a base model + selectors.
+ * `grok-4.5-fast-high` so the composer can keep a base model + selectors.
  */
 export function cursorModelOptionsFromVariantSlug(
   model: string | null | undefined,

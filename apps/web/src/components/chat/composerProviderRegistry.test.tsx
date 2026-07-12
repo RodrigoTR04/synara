@@ -470,9 +470,9 @@ describe("getComposerProviderState", () => {
   it("dispatches Cursor default effort and explicit fastMode=false for CLI-style models", () => {
     const state = getComposerProviderState({
       provider: "cursor",
-      model: "grok-4-5",
+      model: "grok-4.5",
       runtimeModel: {
-        slug: "grok-4-5",
+        slug: "grok-4.5",
         name: "Grok 4.5",
         upstreamProviderId: "xai",
         upstreamProviderName: "xAI",

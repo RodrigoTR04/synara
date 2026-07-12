@@ -18,14 +18,15 @@ describe("normalizeCursorModelVariantBaseId", () => {
       "claude-opus-4-6",
     );
     expect(normalizeCursorModelVariantBaseId("claude-5-sonnet-max-fast")).toBe("claude-sonnet-5");
-    expect(normalizeCursorModelVariantBaseId("grok-4-5-fast-high")).toBe("grok-4-5");
+    expect(normalizeCursorModelVariantBaseId("grok-4.5-fast-high")).toBe("grok-4.5");
     expect(normalizeCursorModelVariantBaseId("grok-4.5-high-fast")).toBe("grok-4.5");
+    expect(normalizeCursorModelVariantBaseId("grok-4-5-fast-high")).toBe("grok-4-5");
   });
 });
 
 describe("cursorModelOptionsFromVariantSlug", () => {
   it("extracts reasoning and fast traits from Grok CLI variant ids", () => {
-    expect(cursorModelOptionsFromVariantSlug("grok-4-5-fast-high")).toEqual({
+    expect(cursorModelOptionsFromVariantSlug("grok-4.5-fast-high")).toEqual({
       reasoningEffort: "high",
       fastMode: true,
     });
@@ -40,10 +41,10 @@ describe("canonicalizeCursorModelSelection", () => {
   it("rewrites Grok Fast High variants onto a base model with selectors", () => {
     expect(
       canonicalizeCursorModelSelection({
-        model: "grok-4-5-fast-high",
+        model: "grok-4.5-fast-high",
       }),
     ).toEqual({
-      model: "grok-4-5",
+      model: "grok-4.5",
       options: {
         reasoningEffort: "high",
         fastMode: true,
@@ -54,11 +55,11 @@ describe("canonicalizeCursorModelSelection", () => {
   it("keeps explicit options over slug-inferred traits", () => {
     expect(
       canonicalizeCursorModelSelection({
-        model: "grok-4-5-fast-high",
+        model: "grok-4.5-fast-high",
         options: { reasoningEffort: "medium", fastMode: false },
       }),
     ).toEqual({
-      model: "grok-4-5",
+      model: "grok-4.5",
       options: {
         reasoningEffort: "medium",
         fastMode: false,
@@ -155,7 +156,7 @@ describe("collapseCursorModelVariants", () => {
     expect(
       collapseCursorModelVariants([
         {
-          slug: "grok-4-5-fast-high",
+          slug: "grok-4.5-fast-high",
           name: "Grok 4.5 Fast High",
           upstreamProviderId: "xai",
           upstreamProviderName: "xAI",
@@ -163,7 +164,7 @@ describe("collapseCursorModelVariants", () => {
           defaultReasoningEffort: "high",
         },
         {
-          slug: "grok-4-5-fast-medium",
+          slug: "grok-4.5-fast-medium",
           name: "Grok 4.5 Fast Medium",
           upstreamProviderId: "xai",
           upstreamProviderName: "xAI",
@@ -171,7 +172,7 @@ describe("collapseCursorModelVariants", () => {
           defaultReasoningEffort: "medium",
         },
         {
-          slug: "grok-4-5-low",
+          slug: "grok-4.5-low",
           name: "Grok 4.5 Low",
           upstreamProviderId: "xai",
           upstreamProviderName: "xAI",
@@ -181,7 +182,7 @@ describe("collapseCursorModelVariants", () => {
       ]),
     ).toEqual([
       {
-        slug: "grok-4-5",
+        slug: "grok-4.5",
         name: "Grok 4.5",
         upstreamProviderId: "xai",
         upstreamProviderName: "xAI",

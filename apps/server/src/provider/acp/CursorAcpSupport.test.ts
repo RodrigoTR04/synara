@@ -1060,14 +1060,14 @@ describe("applyCursorAcpModelSelection", () => {
           name: "Model",
           category: "model",
           type: "select",
-          currentValue: "grok-4-5-fast-high",
+          currentValue: "grok-4.5-fast-high",
           options: [
-            { value: "grok-4-5-fast-high", name: "Grok 4.5 Fast High" },
-            { value: "grok-4-5-fast-medium", name: "Grok 4.5 Fast Medium" },
-            { value: "grok-4-5-fast-low", name: "Grok 4.5 Fast Low" },
-            { value: "grok-4-5-high", name: "Grok 4.5 High" },
-            { value: "grok-4-5-medium", name: "Grok 4.5 Medium" },
-            { value: "grok-4-5-low", name: "Grok 4.5 Low" },
+            { value: "grok-4.5-fast-high", name: "Grok 4.5 Fast High" },
+            { value: "grok-4.5-fast-medium", name: "Grok 4.5 Fast Medium" },
+            { value: "grok-4.5-fast-low", name: "Grok 4.5 Fast Low" },
+            { value: "grok-4.5-high", name: "Grok 4.5 High" },
+            { value: "grok-4.5-medium", name: "Grok 4.5 Medium" },
+            { value: "grok-4.5-low", name: "Grok 4.5 Low" },
           ],
         },
       ] satisfies ReadonlyArray<EffectAcpSchema.SessionConfigOption>),
@@ -1084,7 +1084,7 @@ describe("applyCursorAcpModelSelection", () => {
     await Effect.runPromise(
       applyCursorAcpModelSelection({
         runtime,
-        model: "grok-4-5",
+        model: "grok-4.5",
         options: { reasoningEffort: "medium", fastMode: false },
         mapError: ({ cause }) => cause,
       }),
@@ -1092,15 +1092,25 @@ describe("applyCursorAcpModelSelection", () => {
     await Effect.runPromise(
       applyCursorAcpModelSelection({
         runtime,
-        model: "grok-4-5",
+        model: "grok-4.5",
         options: { reasoningEffort: "low", fastMode: true },
+        mapError: ({ cause }) => cause,
+      }),
+    );
+    // Hyphenated aliases must still resolve to Cursor's dotted Grok ids.
+    await Effect.runPromise(
+      applyCursorAcpModelSelection({
+        runtime,
+        model: "grok-4-5",
+        options: { reasoningEffort: "high", fastMode: false },
         mapError: ({ cause }) => cause,
       }),
     );
 
     expect(calls).toEqual([
-      { type: "model", value: "grok-4-5-medium" },
-      { type: "model", value: "grok-4-5-fast-low" },
+      { type: "model", value: "grok-4.5-medium" },
+      { type: "model", value: "grok-4.5-fast-low" },
+      { type: "model", value: "grok-4.5-high" },
     ]);
   });
 });

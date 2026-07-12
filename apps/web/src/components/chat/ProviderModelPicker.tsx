@@ -8,7 +8,10 @@ import { resolveSelectableModel } from "@synara/shared/model";
 import * as Schema from "effect/Schema";
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
-import { normalizeCursorModelVariantBaseId } from "../../cursorModelVariants";
+import {
+  cursorModelVariantBaseIdsEquivalent,
+  normalizeCursorModelVariantBaseId,
+} from "../../cursorModelVariants";
 import { formatProviderModelOptionName } from "../../providerModelOptions";
 import { compareProvidersByOrder } from "../../providerOrdering";
 import {
@@ -149,14 +152,11 @@ function resolveSelectedModelLabel(input: {
     return exact.name;
   }
   if (input.provider === "cursor") {
-    const selectedBase =
-      normalizeCursorModelVariantBaseId(input.model) ?? stripParameterizedModelSuffix(input.model);
-    const baseMatch = input.options.find((option) => {
-      const optionBase =
-        normalizeCursorModelVariantBaseId(option.slug) ??
-        stripParameterizedModelSuffix(option.slug);
-      return optionBase === selectedBase || option.slug === selectedBase;
-    });
+    const baseMatch = input.options.find(
+      (option) =>
+        cursorModelVariantBaseIdsEquivalent(option.slug, input.model) ||
+        cursorModelVariantBaseIdsEquivalent(option.slug, stripParameterizedModelSuffix(input.model)),
+    );
     if (baseMatch) {
       return baseMatch.name;
     }
