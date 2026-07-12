@@ -1538,7 +1538,7 @@ function normalizeModelSelection(
   if (provider === "cursor") {
     const canonical = canonicalizeCursorModelSelection({
       model: normalizedSlug,
-      options,
+      options: modelOptions?.cursor,
     });
     return makeModelSelection(provider, canonical.model, canonical.options);
   }
