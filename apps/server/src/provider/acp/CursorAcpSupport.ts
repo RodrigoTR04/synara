@@ -1305,6 +1305,84 @@ function resolveCursorAutoModelValue(
   );
 }
 
+function cursorChoiceMatchesCliBase(choice: CursorAcpModelChoice, baseModel: string): boolean {
+  if (choice.slug.includes("[")) {
+    return false;
+  }
+  const choiceBase = normalizeCursorCliBaseModelId(choice.slug);
+  const requestedBase = normalizeCursorCliBaseModelId(stripCursorParameterizedSuffix(baseModel));
+  return choiceBase === requestedBase;
+}
+
+/**
+ * When Cursor only exposes flat CLI trait variants (e.g. grok-4-5-fast-high),
+ * pick the slug that matches the collapsed base + requested effort/fast/thinking.
+ */
+function findCursorCliVariantForTraits(
+  choices: ReadonlyArray<CursorAcpModelChoice>,
+  baseModel: string,
+  options: CursorModelOptions | null | undefined,
+): string | undefined {
+  const candidates = choices.filter((choice) => cursorChoiceMatchesCliBase(choice, baseModel));
+  if (candidates.length === 0) {
+    return undefined;
+  }
+
+  const wantedEffort = options?.reasoningEffort
+    ? normalizeCursorReasoningValue(options.reasoningEffort)
+    : undefined;
+  const wantedFast = options?.fastMode;
+  const wantedThinking = options?.thinking;
+
+  let bestSlug: string | undefined;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (const choice of candidates) {
+    const inferred = cursorModelOptionsFromCliModelId(choice.slug);
+    const effort = inferred.reasoningEffort
+      ? normalizeCursorReasoningValue(inferred.reasoningEffort)
+      : undefined;
+    const fast = inferred.fastMode === true;
+    const thinking = inferred.thinking === true;
+
+    let score = 0;
+    if (wantedEffort !== undefined) {
+      if (effort !== wantedEffort) {
+        continue;
+      }
+      score += 100;
+    } else if (effort === undefined) {
+      score += 2;
+    }
+
+    if (wantedFast !== undefined) {
+      if (fast !== wantedFast) {
+        continue;
+      }
+      score += 50;
+    } else if (!fast) {
+      // Prefer normal mode when the composer did not ask for Fast.
+      score += 10;
+    }
+
+    if (wantedThinking !== undefined) {
+      if (thinking !== wantedThinking) {
+        continue;
+      }
+      score += 25;
+    } else if (!thinking) {
+      score += 5;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestSlug = choice.slug;
+    }
+  }
+
+  return bestSlug;
+}
+
 function resolveCursorAcpModelValue(
   configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>,
   model: string | null | undefined,
@@ -1331,30 +1409,48 @@ function resolveCursorAcpModelValue(
   }
   const cliBaseModel = normalizeCursorCliBaseModelId(baseModel);
 
-  const acpModelValue =
+  const parameterizedChoice =
+    choices.find(
+      (choice) => choice.slug.includes("[") && resolveCursorAcpBaseModelId(choice.slug) === baseModel,
+    ) ??
+    choices.find(
+      (choice) =>
+        choice.slug.includes("[") && resolveCursorAcpBaseModelId(choice.slug) === cliBaseModel,
+    );
+  if (parameterizedChoice) {
+    const acpModelValue = parameterizedChoice.slug;
+    const inferredModel =
+      buildCursorParameterizedModelFromCliModelId({
+        acpModelValue,
+        cliModel: trimmed,
+        choices,
+      }) ?? acpModelValue;
+    const resolvedModel =
+      buildCursorParameterizedModelFromOptions({
+        acpModelValue: inferredModel,
+        options,
+        choices,
+      }) ?? inferredModel;
+    if (choices.some((choice) => choice.slug === resolvedModel)) {
+      return resolvedModel;
+    }
+    return (
+      findCursorModelChoiceIgnoringFast(choices, resolvedModel) ??
+      findCursorModelChoiceWithSupportedParameters(choices, resolvedModel) ??
+      resolvedModel
+    );
+  }
+
+  const cliVariant = findCursorCliVariantForTraits(choices, baseModel, options);
+  if (cliVariant) {
+    return cliVariant;
+  }
+
+  return (
     choices.find((choice) => choice.slug === baseModel)?.slug ??
     choices.find((choice) => resolveCursorAcpBaseModelId(choice.slug) === baseModel)?.slug ??
     choices.find((choice) => resolveCursorAcpBaseModelId(choice.slug) === cliBaseModel)?.slug ??
-    baseModel;
-  const inferredModel =
-    buildCursorParameterizedModelFromCliModelId({
-      acpModelValue,
-      cliModel: trimmed,
-      choices,
-    }) ?? acpModelValue;
-  const resolvedModel =
-    buildCursorParameterizedModelFromOptions({
-      acpModelValue: inferredModel,
-      options,
-      choices,
-    }) ?? inferredModel;
-  if (choices.some((choice) => choice.slug === resolvedModel)) {
-    return resolvedModel;
-  }
-  return (
-    findCursorModelChoiceIgnoringFast(choices, resolvedModel) ??
-    findCursorModelChoiceWithSupportedParameters(choices, resolvedModel) ??
-    resolvedModel
+    baseModel
   );
 }
 

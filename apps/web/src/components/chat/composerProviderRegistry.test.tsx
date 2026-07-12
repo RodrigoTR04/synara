@@ -467,6 +467,42 @@ describe("getComposerProviderState", () => {
     });
   });
 
+  it("dispatches Cursor default effort and explicit fastMode=false for CLI-style models", () => {
+    const state = getComposerProviderState({
+      provider: "cursor",
+      model: "grok-4-5",
+      runtimeModel: {
+        slug: "grok-4-5",
+        name: "Grok 4.5",
+        upstreamProviderId: "xai",
+        upstreamProviderName: "xAI",
+        supportedReasoningEfforts: [
+          { value: "low", label: "Low" },
+          { value: "medium", label: "Medium" },
+          { value: "high", label: "High" },
+        ],
+        defaultReasoningEffort: "high",
+        supportsFastMode: true,
+      },
+      prompt: "",
+      modelOptions: {
+        cursor: {
+          reasoningEffort: "medium",
+          fastMode: false,
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "cursor",
+      promptEffort: "medium",
+      modelOptionsForDispatch: {
+        reasoningEffort: "medium",
+        fastMode: false,
+      },
+    });
+  });
+
   it("keeps Pi runtime thinking selections on the thinkingLevel field", () => {
     const selection = getComposerTraitSelection(
       "pi",

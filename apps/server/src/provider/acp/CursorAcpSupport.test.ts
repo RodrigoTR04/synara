@@ -1046,6 +1046,63 @@ describe("applyCursorAcpModelSelection", () => {
       },
     ]);
   });
+
+  it("maps collapsed Grok CLI variants to the matching effort and fast model ids", async () => {
+    const calls: Array<
+      | { readonly type: "model"; readonly value: string }
+      | { readonly type: "config"; readonly configId: string; readonly value: string | boolean }
+    > = [];
+
+    const runtime = {
+      getConfigOptions: Effect.succeed([
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "grok-4-5-fast-high",
+          options: [
+            { value: "grok-4-5-fast-high", name: "Grok 4.5 Fast High" },
+            { value: "grok-4-5-fast-medium", name: "Grok 4.5 Fast Medium" },
+            { value: "grok-4-5-fast-low", name: "Grok 4.5 Fast Low" },
+            { value: "grok-4-5-high", name: "Grok 4.5 High" },
+            { value: "grok-4-5-medium", name: "Grok 4.5 Medium" },
+            { value: "grok-4-5-low", name: "Grok 4.5 Low" },
+          ],
+        },
+      ] satisfies ReadonlyArray<EffectAcpSchema.SessionConfigOption>),
+      setModel: (value: string) =>
+        Effect.sync(() => {
+          calls.push({ type: "model", value });
+        }),
+      setConfigOption: (configId: string, value: string | boolean) =>
+        Effect.sync(() => {
+          calls.push({ type: "config", configId, value });
+        }),
+    };
+
+    await Effect.runPromise(
+      applyCursorAcpModelSelection({
+        runtime,
+        model: "grok-4-5",
+        options: { reasoningEffort: "medium", fastMode: false },
+        mapError: ({ cause }) => cause,
+      }),
+    );
+    await Effect.runPromise(
+      applyCursorAcpModelSelection({
+        runtime,
+        model: "grok-4-5",
+        options: { reasoningEffort: "low", fastMode: true },
+        mapError: ({ cause }) => cause,
+      }),
+    );
+
+    expect(calls).toEqual([
+      { type: "model", value: "grok-4-5-medium" },
+      { type: "model", value: "grok-4-5-fast-low" },
+    ]);
+  });
 });
 
 describe("buildCursorAcpModelDescriptorsFromAvailableModels", () => {

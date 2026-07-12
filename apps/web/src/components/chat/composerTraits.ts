@@ -25,10 +25,11 @@ function getCursorBooleanModelParameter(
   const slug = typeof model === "string" ? model.trim().toLowerCase() : "";
   const match = typeof model === "string" ? model.match(/\[([^\]]*)\]$/u) : null;
   if (!match?.[1]) {
-    if (key === "fast" && slug.endsWith("-fast")) {
+    const tokens = slug.split("-").filter((token) => token.length > 0);
+    if (key === "fast" && tokens.includes("fast")) {
       return true;
     }
-    if (key === "thinking" && slug.includes("-thinking")) {
+    if (key === "thinking" && tokens.includes("thinking")) {
       return true;
     }
     return null;

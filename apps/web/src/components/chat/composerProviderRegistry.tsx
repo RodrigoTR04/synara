@@ -151,10 +151,15 @@ function getProviderStateFromCapabilities(
       const providerOptions = modelOptions?.cursor;
       rawEffort = trimOrNull(providerOptions?.reasoningEffort);
       const defaultReasoningEffort = getDefaultEffort(caps);
+      // Always dispatch the effective effort. Cursor often only exposes flat CLI
+      // variants (e.g. grok-*-medium), so omitting the default leaves the session
+      // stuck on whatever variant was selected last (commonly fast-high).
       const reasoningEffort =
-        rawEffort && hasEffortLevel(caps, rawEffort) && rawEffort !== defaultReasoningEffort
+        rawEffort && hasEffortLevel(caps, rawEffort)
           ? rawEffort
-          : undefined;
+          : defaultReasoningEffort && hasEffortLevel(caps, defaultReasoningEffort)
+            ? defaultReasoningEffort
+            : undefined;
       const rawContextWindow = trimOrNull(providerOptions?.contextWindow);
       const defaultContextWindow = getDefaultContextWindow(caps);
       const contextWindow =
@@ -163,14 +168,16 @@ function getProviderStateFromCapabilities(
         rawContextWindow !== defaultContextWindow
           ? rawContextWindow
           : undefined;
-      const fastModeEnabled = caps.supportsFastMode && providerOptions?.fastMode === true;
+      // Explicit false is required: omitting fastMode leaves Cursor on Fast when
+      // the live session default (or prior variant) was already Fast.
+      const fastMode = caps.supportsFastMode ? providerOptions?.fastMode === true : undefined;
       const thinking =
         caps.supportsThinkingToggle && providerOptions?.thinking !== undefined
           ? providerOptions.thinking
           : undefined;
       const nextOptions = {
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        ...(fastModeEnabled ? { fastMode: true } : {}),
+        ...(caps.supportsFastMode ? { fastMode: fastMode === true } : {}),
         ...(thinking !== undefined ? { thinking } : {}),
         ...(contextWindow ? { contextWindow } : {}),
       };
