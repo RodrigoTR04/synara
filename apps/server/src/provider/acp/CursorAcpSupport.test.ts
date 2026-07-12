@@ -1122,13 +1122,55 @@ describe("applyCursorAcpModelSelection", () => {
       { type: "model", value: "grok-4.5[effort=high,fast=true]" },
       { type: "config", configId: "effort", value: "high" },
       { type: "config", configId: "fast", value: "true" },
-      { type: "model", value: "grok-4.5[effort=high,fast=true]" },
+      { type: "model", value: "grok-4.5[effort=medium,fast=false]" },
       { type: "config", configId: "effort", value: "medium" },
       { type: "config", configId: "fast", value: "false" },
     ]);
     expect(calls.some((call) => call.type === "model" && call.value.includes("reasoning="))).toBe(
       false,
     );
+  });
+
+  it("sets Grok effort and fast on the model value when the picker only advertises the default", async () => {
+    const calls: Array<
+      | { readonly type: "model"; readonly value: string }
+      | { readonly type: "config"; readonly configId: string; readonly value: string | boolean }
+    > = [];
+
+    const runtime = {
+      getConfigOptions: Effect.succeed([
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "grok-4.5[effort=high,fast=true]",
+          options: [
+            { value: "default[]", name: "Auto" },
+            { value: "grok-4.5[effort=high,fast=true]", name: "Grok 4.5" },
+          ],
+        },
+      ] satisfies ReadonlyArray<EffectAcpSchema.SessionConfigOption>),
+      setModel: (value: string) =>
+        Effect.sync(() => {
+          calls.push({ type: "model", value });
+        }),
+      setConfigOption: (configId: string, value: string | boolean) =>
+        Effect.sync(() => {
+          calls.push({ type: "config", configId, value });
+        }),
+    };
+
+    await Effect.runPromise(
+      applyCursorAcpModelSelection({
+        runtime,
+        model: "grok-4.5",
+        options: { reasoningEffort: "low", fastMode: false },
+        mapError: ({ cause }) => cause,
+      }),
+    );
+
+    expect(calls).toEqual([{ type: "model", value: "grok-4.5[effort=low,fast=false]" }]);
   });
 
   it("maps collapsed Grok CLI variants to the matching effort and fast model ids", async () => {

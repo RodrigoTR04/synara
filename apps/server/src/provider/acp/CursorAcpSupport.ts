@@ -1133,6 +1133,24 @@ function cursorModelOptionValueSupported(input: {
   if (option) {
     return toConfigValue(option, input.value) !== undefined;
   }
+  // Sparse model-picker snapshots often include only the default parameterized
+  // value (e.g. grok-4.5[effort=high,fast=true]). That is not a closed enum —
+  // effort/fast/thinking are applied via set_config_option after model select.
+  if (
+    input.parameterKey === "effort" ||
+    input.parameterKey === "reasoning" ||
+    input.parameterKey === "fast" ||
+    input.parameterKey === "thinking"
+  ) {
+    if (typeof input.value === "boolean") {
+      return true;
+    }
+    return (
+      input.parameterKey === "fast" ||
+      input.parameterKey === "thinking" ||
+      normalizeCursorReasoningValue(String(input.value)) !== undefined
+    );
+  }
   if (typeof input.value === "boolean") {
     if (
       input.value === false &&
@@ -1486,6 +1504,30 @@ function cursorConstructedModelCanDeferToConfigOptions(
   return true;
 }
 
+function cursorConstructedModelOnlyDiffersByPostSelectTraits(
+  advertisedModel: string,
+  constructedModel: string,
+): boolean {
+  if (
+    stripCursorParameterizedSuffix(advertisedModel) !==
+    stripCursorParameterizedSuffix(constructedModel)
+  ) {
+    return false;
+  }
+  const advertisedParams = parseCursorModelParameters(advertisedModel);
+  const constructedParams = parseCursorModelParameters(constructedModel);
+  const keys = new Set([...advertisedParams.keys(), ...constructedParams.keys()]);
+  for (const key of keys) {
+    if (advertisedParams.get(key) === constructedParams.get(key)) {
+      continue;
+    }
+    if (key !== "effort" && key !== "reasoning" && key !== "fast" && key !== "thinking") {
+      return false;
+    }
+  }
+  return true;
+}
+
 function resolveCursorAcpModelValue(
   configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>,
   model: string | null | undefined,
@@ -1541,10 +1583,24 @@ function resolveCursorAcpModelValue(
       return resolvedModel;
     }
     const compatibleChoice =
-      findCursorModelChoiceIgnoringFast(choices, resolvedModel) ??
+      (findConfigOption(configOptions, ["fast", "fast mode"])
+        ? findCursorModelChoiceIgnoringFast(choices, resolvedModel)
+        : undefined) ??
       findCursorModelChoiceWithSupportedParameters(choices, resolvedModel);
     if (compatibleChoice) {
       return compatibleChoice;
+    }
+    const parameterizedBase = stripCursorParameterizedSuffix(parameterizedChoice.slug).toLowerCase();
+    // Grok's billed/runtime model follows the parameterized setModel value. Prefer the
+    // constructed effort/fast slug over the sparse advertised default + config deltas.
+    if (
+      parameterizedBase.includes("grok") &&
+      cursorConstructedModelOnlyDiffersByPostSelectTraits(
+        parameterizedChoice.slug,
+        resolvedModel,
+      )
+    ) {
+      return resolvedModel;
     }
     // Cursor's model picker often only accepts exact advertised values. When the
     // constructed slug only changes traits that have dedicated config options,
@@ -1557,6 +1613,17 @@ function resolveCursorAcpModelValue(
       )
     ) {
       return parameterizedChoice.slug;
+    }
+    // Sparse picker snapshots (one default like grok-4.5[effort=high,fast=true]) are
+    // not a closed enum. Prefer the constructed value so low/non-fast selections are
+    // not silently collapsed back to the advertised fast-high default.
+    if (
+      cursorConstructedModelOnlyDiffersByPostSelectTraits(
+        parameterizedChoice.slug,
+        resolvedModel,
+      )
+    ) {
+      return resolvedModel;
     }
     return resolvedModel;
   }
@@ -1582,22 +1649,28 @@ export function applyCursorAcpModelSelection<E>(input: {
 }): Effect.Effect<void, E> {
   return Effect.gen(function* () {
     const initialConfigOptions = yield* input.runtime.getConfigOptions;
-    const choices = flattenCursorAcpModelChoices(initialConfigOptions);
+    const initialChoices = flattenCursorAcpModelChoices(initialConfigOptions);
     const baseModel = resolveCursorAcpBaseModelId(input.model);
-    const runtimeSafeOptions = normalizeCursorAcpRuntimeOptions({
-      configOptions: initialConfigOptions,
-      choices,
-      baseModel,
-      options: mergeCursorModelOptions(
+    const requestedOptions = mergeCursorModelOptions(
+      cursorModelOptionsFromCliModelId(input.model),
+      mergeCursorModelOptions(
         cursorModelOptionsFromModelParameters(input.model),
         input.options,
       ),
+    );
+    // Drop truly unsupported traits (e.g. stale context=1m) against the live matrix,
+    // but keep effort/fast even when the picker only advertises the default combo.
+    const runtimeSafeOptions = normalizeCursorAcpRuntimeOptions({
+      configOptions: initialConfigOptions,
+      choices: initialChoices,
+      baseModel,
+      options: requestedOptions,
     });
-    const mergedOptions = mergeCursorModelOptions(
-      cursorModelOptionsFromCliModelId(input.model),
+    const modelValue = resolveCursorAcpModelValue(
+      initialConfigOptions,
+      input.model,
       runtimeSafeOptions,
     );
-    const modelValue = resolveCursorAcpModelValue(initialConfigOptions, input.model, mergedOptions);
     if (modelValue) {
       yield* input.runtime.setModel(modelValue).pipe(
         Effect.mapError((cause) =>
@@ -1609,9 +1682,18 @@ export function applyCursorAcpModelSelection<E>(input: {
       );
     }
 
+    // Refresh after setModel so Grok/Claude effort+fast selectors are the live ones.
+    const postConfigOptions = yield* input.runtime.getConfigOptions;
+    const postChoices = flattenCursorAcpModelChoices(postConfigOptions);
+    const postRuntimeSafeOptions = normalizeCursorAcpRuntimeOptions({
+      configOptions: postConfigOptions,
+      choices: postChoices.length > 0 ? postChoices : initialChoices,
+      baseModel,
+      options: requestedOptions,
+    });
     const configUpdates = collectCursorAcpConfigUpdates(
-      yield* input.runtime.getConfigOptions,
-      mergedOptions,
+      postConfigOptions,
+      postRuntimeSafeOptions,
     );
     for (const update of configUpdates) {
       yield* input.runtime.setConfigOption(update.configId, update.value).pipe(
