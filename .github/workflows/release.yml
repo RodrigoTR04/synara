@@ -15,6 +15,16 @@ on:
         required: true
         default: false
         type: boolean
+      platforms:
+        description: "Desktop platforms to build (linux = AppImage only)"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - linux
+          - mac
+          - win
 
 permissions:
   contents: write
@@ -40,6 +50,7 @@ jobs:
       bridge_tag: ${{ steps.release_meta.outputs.bridge_tag }}
       update_channel: ${{ steps.release_meta.outputs.update_channel }}
       ref: ${{ github.sha }}
+      build_matrix: ${{ steps.build_matrix.outputs.matrix }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -67,6 +78,60 @@ jobs:
         env:
           RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}
         run: node scripts/resolve-release-update-policy.ts "$RELEASE_VERSION"
+
+      - id: build_matrix
+        name: Resolve desktop build matrix
+        shell: bash
+        env:
+          PLATFORMS: ${{ github.event_name == 'workflow_dispatch' && inputs.platforms || 'all' }}
+        run: |
+          set -euo pipefail
+          matrix="$(node <<'EOF'
+          const platforms = (process.env.PLATFORMS || "all").trim().toLowerCase();
+          const all = [
+            {
+              label: "macOS arm64",
+              runner: "macos-14",
+              platform: "mac",
+              target: "dmg",
+              arch: "arm64",
+            },
+            {
+              label: "macOS x64",
+              runner: "macos-15-intel",
+              platform: "mac",
+              target: "dmg",
+              arch: "x64",
+            },
+            {
+              label: "Linux x64",
+              runner: "ubuntu-24.04",
+              platform: "linux",
+              target: "AppImage",
+              arch: "x64",
+            },
+            {
+              label: "Windows x64",
+              runner: "windows-2022",
+              platform: "win",
+              target: "nsis",
+              arch: "x64",
+            },
+          ];
+          const selected =
+            platforms === "all" ? all : all.filter((entry) => entry.platform === platforms);
+          if (selected.length === 0) {
+            throw new Error(`Unsupported platforms filter: ${platforms}`);
+          }
+          process.stdout.write(JSON.stringify({ include: selected }));
+          EOF
+          )"
+          {
+            echo "matrix<<EOF"
+            echo "$matrix"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building platforms filter='$PLATFORMS' with matrix: $matrix"
 
       - name: Verify public updater repository
         env:
@@ -139,28 +204,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - label: macOS arm64
-            runner: macos-14
-            platform: mac
-            target: dmg
-            arch: arm64
-          - label: macOS x64
-            runner: macos-15-intel
-            platform: mac
-            target: dmg
-            arch: x64
-          - label: Linux x64
-            runner: ubuntu-24.04
-            platform: linux
-            target: AppImage
-            arch: x64
-          - label: Windows x64
-            runner: windows-2022
-            platform: win
-            target: nsis
-            arch: x64
+      matrix: ${{ fromJSON(needs.preflight.outputs.build_matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -366,10 +410,14 @@ jobs:
 
       - name: Merge macOS updater manifests
         run: |
-          node scripts/merge-mac-update-manifests.ts \
-            release-assets/latest-mac.yml \
-            release-assets/latest-mac-x64.yml
-          rm -f release-assets/latest-mac-x64.yml
+          if [[ -f release-assets/latest-mac.yml && -f release-assets/latest-mac-x64.yml ]]; then
+            node scripts/merge-mac-update-manifests.ts \
+              release-assets/latest-mac.yml \
+              release-assets/latest-mac-x64.yml
+            rm -f release-assets/latest-mac-x64.yml
+          else
+            echo "Skipping macOS updater manifest merge; mac artifacts were not built."
+          fi
 
       - name: Prepare updater feed metadata
         run: node scripts/prepare-release-update-feed.ts release-assets

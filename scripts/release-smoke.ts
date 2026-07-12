@@ -161,6 +161,16 @@ function verifyReleaseWorkflowSafety(): void {
   );
   assertContains(
     workflow,
+    "platforms:\n        description:",
+    "Expected a manual platforms filter input for selective desktop builds.",
+  );
+  assertContains(
+    workflow,
+    "build_matrix: ${{ steps.build_matrix.outputs.matrix }}",
+    "Expected preflight to expose the filtered desktop build matrix.",
+  );
+  assertContains(
+    workflow,
     "Windows signing is optional; building an unsigned installer",
     "Expected Windows releases to support unsigned installers when signing is unavailable.",
   );
