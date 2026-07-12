@@ -676,7 +676,7 @@ describe("applyCursorAcpModelSelection", () => {
     expect(calls).toEqual([
       {
         type: "model",
-        value: "claude-opus-4-6[thinking=true,context=1m,effort=extra-high,fast=true]",
+        value: "claude-opus-4-6[thinking=true,context=200k,effort=high,fast=false]",
       },
       { type: "config", configId: "reasoning", value: "extra-high" },
       { type: "config", configId: "context", value: "1m" },
@@ -780,12 +780,12 @@ describe("applyCursorAcpModelSelection", () => {
     expect(calls).toEqual([
       {
         type: "model",
-        value: "claude-opus-4-6[thinking=true,context=1m,effort=max,fast=true]",
+        value: "claude-opus-4-6[thinking=true,context=200k,effort=high,fast=false]",
       },
       { type: "config", configId: "context", value: "1m" },
       { type: "config", configId: "fast", value: "true" },
       { type: "config", configId: "thinking", value: true },
-      { type: "model", value: "gpt-5.3-codex-spark[reasoning=low]" },
+      { type: "model", value: "gpt-5.3-codex-spark[reasoning=medium]" },
       { type: "config", configId: "reasoning", value: "low" },
     ]);
   });
@@ -929,7 +929,7 @@ describe("applyCursorAcpModelSelection", () => {
     expect(calls).toEqual([
       {
         type: "model",
-        value: "claude-opus-4-6[thinking=true,context=1m,effort=extra-high,fast=true]",
+        value: "claude-opus-4-6[thinking=true,context=200k,effort=high,fast=false]",
       },
       { type: "config", configId: "reasoning", value: "extra-high" },
       { type: "config", configId: "context", value: "1m" },
@@ -1045,6 +1045,90 @@ describe("applyCursorAcpModelSelection", () => {
         value: "claude-opus-4-7[thinking=true,context=300k,effort=xhigh]",
       },
     ]);
+  });
+
+  it("maps collapsed Grok parameterized ACP choices without duplicating effort and reasoning", async () => {
+    const calls: Array<
+      | { readonly type: "model"; readonly value: string }
+      | { readonly type: "config"; readonly configId: string; readonly value: string | boolean }
+    > = [];
+
+    const runtime = {
+      getConfigOptions: Effect.succeed([
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "grok-4.5[effort=high,fast=true]",
+          options: [
+            { value: "default[]", name: "Auto" },
+            { value: "grok-4.5[effort=high,fast=true]", name: "Grok 4.5" },
+            { value: "composer-2.5[fast=true]", name: "Composer 2.5" },
+          ],
+        },
+        {
+          id: "effort",
+          name: "Effort",
+          category: "thought_level",
+          type: "select",
+          currentValue: "high",
+          options: [
+            { value: "low", name: "Low" },
+            { value: "medium", name: "Medium" },
+            { value: "high", name: "High" },
+          ],
+        },
+        {
+          id: "fast",
+          name: "Fast",
+          category: "model_config",
+          type: "select",
+          currentValue: "true",
+          options: [
+            { value: "false", name: "Off" },
+            { value: "true", name: "Fast" },
+          ],
+        },
+      ] satisfies ReadonlyArray<EffectAcpSchema.SessionConfigOption>),
+      setModel: (value: string) =>
+        Effect.sync(() => {
+          calls.push({ type: "model", value });
+        }),
+      setConfigOption: (configId: string, value: string | boolean) =>
+        Effect.sync(() => {
+          calls.push({ type: "config", configId, value });
+        }),
+    };
+
+    await Effect.runPromise(
+      applyCursorAcpModelSelection({
+        runtime,
+        model: "grok-4.5",
+        options: { reasoningEffort: "high", fastMode: true },
+        mapError: ({ cause }) => cause,
+      }),
+    );
+    await Effect.runPromise(
+      applyCursorAcpModelSelection({
+        runtime,
+        model: "grok-4.5",
+        options: { reasoningEffort: "medium", fastMode: false },
+        mapError: ({ cause }) => cause,
+      }),
+    );
+
+    expect(calls).toEqual([
+      { type: "model", value: "grok-4.5[effort=high,fast=true]" },
+      { type: "config", configId: "effort", value: "high" },
+      { type: "config", configId: "fast", value: "true" },
+      { type: "model", value: "grok-4.5[effort=high,fast=true]" },
+      { type: "config", configId: "effort", value: "medium" },
+      { type: "config", configId: "fast", value: "false" },
+    ]);
+    expect(calls.some((call) => call.type === "model" && call.value.includes("reasoning="))).toBe(
+      false,
+    );
   });
 
   it("maps collapsed Grok CLI variants to the matching effort and fast model ids", async () => {

@@ -210,6 +210,14 @@ function cursorModelParametersToObject(value: string): Record<string, string> {
   return Object.fromEntries(parseCursorModelParameters(value).entries());
 }
 
+const CURSOR_PARAMETER_KEY_ORDER = [
+  "thinking",
+  "context",
+  "effort",
+  "reasoning",
+  "fast",
+] as const;
+
 function buildCursorParameterizedModelSlug(
   baseModel: string,
   params: Record<string, string>,
@@ -218,6 +226,20 @@ function buildCursorParameterizedModelSlug(
   if (entries.length === 0) {
     return baseModel;
   }
+  entries.sort(([left], [right]) => {
+    const leftIndex = CURSOR_PARAMETER_KEY_ORDER.indexOf(
+      left as (typeof CURSOR_PARAMETER_KEY_ORDER)[number],
+    );
+    const rightIndex = CURSOR_PARAMETER_KEY_ORDER.indexOf(
+      right as (typeof CURSOR_PARAMETER_KEY_ORDER)[number],
+    );
+    const normalizedLeft = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+    const normalizedRight = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+    if (normalizedLeft !== normalizedRight) {
+      return normalizedLeft - normalizedRight;
+    }
+    return left.localeCompare(right);
+  });
   return `${baseModel}[${entries.map(([key, value]) => `${key}=${value}`).join(",")}]`;
 }
 
@@ -633,11 +655,45 @@ function cursorModelOptionsFromCliModelId(model: string | null | undefined): Cur
   };
 }
 
-function cursorAcpParameterKeyForModel(baseModel: string, options: CursorModelOptions): string {
-  if (options.reasoningEffort && baseModel.includes("claude")) {
+function cursorAcpParameterKeyForModel(
+  baseModel: string,
+  options: CursorModelOptions,
+  existingParams?: Record<string, string>,
+): string {
+  if (existingParams?.effort !== undefined) {
+    return "effort";
+  }
+  if (existingParams?.reasoning !== undefined) {
+    return "reasoning";
+  }
+  const lower = baseModel.toLowerCase();
+  // Cursor uses `effort` for Claude and Grok parameterized model values.
+  if (options.reasoningEffort && (lower.includes("claude") || lower.includes("grok"))) {
     return "effort";
   }
   return "reasoning";
+}
+
+function applyCursorReasoningParameter(
+  params: Record<string, string>,
+  input: {
+    readonly baseModel: string;
+    readonly options: CursorModelOptions;
+    readonly choices: ReadonlyArray<CursorAcpModelChoice>;
+    readonly requestedValue: string;
+  },
+): void {
+  const parameterKey = cursorAcpParameterKeyForModel(input.baseModel, input.options, params);
+  // Never emit both effort and reasoning; Cursor rejects duplicated thought keys.
+  delete params.effort;
+  delete params.reasoning;
+  params[parameterKey] =
+    resolveCursorChoiceParameterValue({
+      choices: input.choices,
+      baseModel: input.baseModel,
+      key: parameterKey,
+      requestedValue: input.requestedValue,
+    }) ?? cursorReasoningParameterValue(input.requestedValue);
 }
 
 function buildCursorParameterizedModelFromCliModelId(input: {
@@ -656,14 +712,12 @@ function buildCursorParameterizedModelFromCliModelId(input: {
   const baseModel = stripCursorParameterizedSuffix(input.acpModelValue);
   const params = cursorModelParametersToObject(input.acpModelValue);
   if (cliOptions.reasoningEffort) {
-    const parameterKey = cursorAcpParameterKeyForModel(baseModel, cliOptions);
-    params[parameterKey] =
-      resolveCursorChoiceParameterValue({
-        choices: input.choices,
-        baseModel,
-        key: parameterKey,
-        requestedValue: cliOptions.reasoningEffort,
-      }) ?? cursorReasoningParameterValue(cliOptions.reasoningEffort);
+    applyCursorReasoningParameter(params, {
+      baseModel,
+      options: cliOptions,
+      choices: input.choices,
+      requestedValue: cliOptions.reasoningEffort,
+    });
   }
   if (cliOptions.contextWindow) {
     params.context = cliOptions.contextWindow;
@@ -692,14 +746,12 @@ function buildCursorParameterizedModelFromOptions(input: {
   const baseModel = stripCursorParameterizedSuffix(input.acpModelValue);
   const params = cursorModelParametersToObject(input.acpModelValue);
   if (input.options.reasoningEffort) {
-    const parameterKey = cursorAcpParameterKeyForModel(baseModel, input.options);
-    params[parameterKey] =
-      resolveCursorChoiceParameterValue({
-        choices: input.choices,
-        baseModel,
-        key: parameterKey,
-        requestedValue: input.options.reasoningEffort,
-      }) ?? cursorReasoningParameterValue(input.options.reasoningEffort);
+    applyCursorReasoningParameter(params, {
+      baseModel,
+      options: input.options,
+      choices: input.choices,
+      requestedValue: input.options.reasoningEffort,
+    });
   }
   if (input.options.contextWindow) {
     params.context = input.options.contextWindow;
@@ -1391,6 +1443,49 @@ function findCursorCliVariantForTraits(
   return bestSlug;
 }
 
+function cursorConfigAliasesForParameterKey(key: string): ReadonlyArray<string> | undefined {
+  switch (key) {
+    case "effort":
+    case "reasoning":
+      return ["effort", "reasoning", "thought level"];
+    case "context":
+      return ["context", "context size", "context window"];
+    case "fast":
+      return ["fast", "fast mode"];
+    case "thinking":
+      return ["thinking"];
+    default:
+      return undefined;
+  }
+}
+
+function cursorConstructedModelCanDeferToConfigOptions(
+  configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>,
+  advertisedModel: string,
+  constructedModel: string,
+): boolean {
+  if (
+    stripCursorParameterizedSuffix(advertisedModel) !== stripCursorParameterizedSuffix(constructedModel)
+  ) {
+    return false;
+  }
+  const advertisedParams = parseCursorModelParameters(advertisedModel);
+  const constructedParams = parseCursorModelParameters(constructedModel);
+  const keys = new Set([...advertisedParams.keys(), ...constructedParams.keys()]);
+  for (const key of keys) {
+    const advertisedValue = advertisedParams.get(key);
+    const constructedValue = constructedParams.get(key);
+    if (advertisedValue === constructedValue) {
+      continue;
+    }
+    const aliases = cursorConfigAliasesForParameterKey(key);
+    if (!aliases || !findConfigOption(configOptions, aliases)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function resolveCursorAcpModelValue(
   configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>,
   model: string | null | undefined,
@@ -1419,11 +1514,14 @@ function resolveCursorAcpModelValue(
 
   const parameterizedChoice =
     choices.find(
-      (choice) => choice.slug.includes("[") && resolveCursorAcpBaseModelId(choice.slug) === baseModel,
+      (choice) =>
+        choice.slug.includes("[") &&
+        cursorModelBaseIdsEquivalent(resolveCursorAcpBaseModelId(choice.slug), baseModel),
     ) ??
     choices.find(
       (choice) =>
-        choice.slug.includes("[") && resolveCursorAcpBaseModelId(choice.slug) === cliBaseModel,
+        choice.slug.includes("[") &&
+        cursorModelBaseIdsEquivalent(resolveCursorAcpBaseModelId(choice.slug), cliBaseModel),
     );
   if (parameterizedChoice) {
     const acpModelValue = parameterizedChoice.slug;
@@ -1442,11 +1540,25 @@ function resolveCursorAcpModelValue(
     if (choices.some((choice) => choice.slug === resolvedModel)) {
       return resolvedModel;
     }
-    return (
+    const compatibleChoice =
       findCursorModelChoiceIgnoringFast(choices, resolvedModel) ??
-      findCursorModelChoiceWithSupportedParameters(choices, resolvedModel) ??
-      resolvedModel
-    );
+      findCursorModelChoiceWithSupportedParameters(choices, resolvedModel);
+    if (compatibleChoice) {
+      return compatibleChoice;
+    }
+    // Cursor's model picker often only accepts exact advertised values. When the
+    // constructed slug only changes traits that have dedicated config options,
+    // keep the advertised choice and apply deltas through set_config_option.
+    if (
+      cursorConstructedModelCanDeferToConfigOptions(
+        configOptions,
+        parameterizedChoice.slug,
+        resolvedModel,
+      )
+    ) {
+      return parameterizedChoice.slug;
+    }
+    return resolvedModel;
   }
 
   const cliVariant = findCursorCliVariantForTraits(choices, baseModel, options);
