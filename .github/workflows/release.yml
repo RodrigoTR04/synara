@@ -594,3 +594,5 @@ jobs:
           git add apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json bun.lock
           git commit -m "chore(release): prepare $RELEASE_TAG"
           git push origin HEAD:main
+
+# Keep workflow registered for fork Actions dispatch.
